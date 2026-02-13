@@ -89,6 +89,12 @@ def load_portfolio_mysql(user_id: int) -> Optional[pd.DataFrame]:
             logger.info(f"No active positions found for user {user_id}")
             return None
         
+        # Convert Decimal values to float for all price columns
+        price_columns = ['Entry_Price', 'Current_Price', 'Stop_Loss', 'Target_1', 'Target_2', 'Realized_PnL']
+        for col in price_columns:
+            if col in df.columns:
+                df[col] = df[col].astype(float)
+        
         # Convert date columns
         if 'Entry_Date' in df.columns:
             df['Entry_Date'] = pd.to_datetime(df['Entry_Date'], errors='coerce')
@@ -378,7 +384,7 @@ def mark_position_inactive_mysql(user_id: int, ticker: str, exit_price: float,
             return False, f"Stock {ticker} not found in your active portfolio"
         
         trade_id = result['id']
-        entry_price = result['entry_price']
+        entry_price = float(result['entry_price'])
         quantity = result['quantity']
         position_type = result['position']
         entry_date = result['entry_date']
@@ -391,9 +397,9 @@ def mark_position_inactive_mysql(user_id: int, ticker: str, exit_price: float,
         
         # Calculate P&L percentage
         if position_type == 'LONG':
-            pnl_pct = ((exit_price - entry_price) / entry_price) * 100
+            pnl_pct = ((float(exit_price) - entry_price) / entry_price) * 100
         else:
-            pnl_pct = ((entry_price - exit_price) / entry_price) * 100
+            pnl_pct = ((entry_price - float(exit_price)) / entry_price) * 100
         
         # Update portfolio_trades to INACTIVE
         cursor.execute(
@@ -505,27 +511,36 @@ def get_performance_stats_mysql(user_id: int) -> Optional[Dict]:
         if not stats or stats['total_trades'] == 0:
             return None
         
+        # Convert Decimal values to float
+        total_trades = int(stats['total_trades'])
+        wins = int(stats['wins'])
+        losses = int(stats['losses'])
+        total_profit = float(stats['total_profit']) if stats['total_profit'] else 0
+        total_loss = float(stats['total_loss']) if stats['total_loss'] else 0
+        max_drawdown = float(stats['max_drawdown']) if stats['max_drawdown'] else 0
+        peak_value = float(stats['peak_portfolio_value']) if stats['peak_portfolio_value'] else 0
+        
         # Calculate derived metrics
-        win_rate = (stats['wins'] / stats['total_trades']) * 100
-        avg_win = stats['total_profit'] / stats['wins'] if stats['wins'] > 0 else 0
-        avg_loss = stats['total_loss'] / stats['losses'] if stats['losses'] > 0 else 0
+        win_rate = (wins / total_trades) * 100
+        avg_win = total_profit / wins if wins > 0 else 0
+        avg_loss = total_loss / losses if losses > 0 else 0
         
         expectancy = (win_rate/100 * avg_win) - ((100-win_rate)/100 * avg_loss)
-        profit_factor = stats['total_profit'] / stats['total_loss'] if stats['total_loss'] > 0 else float('inf')
-        net_profit = stats['total_profit'] - stats['total_loss']
+        profit_factor = total_profit / total_loss if total_loss > 0 else float('inf')
+        net_profit = total_profit - total_loss
         
         return {
-            'total_trades': stats['total_trades'],
-            'wins': stats['wins'],
-            'losses': stats['losses'],
+            'total_trades': total_trades,
+            'wins': wins,
+            'losses': losses,
             'win_rate': win_rate,
             'avg_win': avg_win,
             'avg_loss': avg_loss,
             'expectancy': expectancy,
             'profit_factor': profit_factor,
             'net_profit': net_profit,
-            'max_drawdown': stats['max_drawdown'],
-            'peak_portfolio_value': stats['peak_portfolio_value']
+            'max_drawdown': max_drawdown,
+            'peak_portfolio_value': peak_value
         }
     
     except Error as e:
@@ -574,6 +589,13 @@ def get_trade_history_mysql(user_id: int, limit: int = 50) -> Optional[pd.DataFr
         """
         
         df = pd.read_sql(query, connection, params=(user_id, limit))
+        
+        if not df.empty:
+            # Convert Decimal values to float for price columns
+            price_columns = ['entry_price', 'exit_price', 'pnl', 'pnl_percent']
+            for col in price_columns:
+                if col in df.columns:
+                    df[col] = df[col].astype(float)
         
         return df if not df.empty else None
     

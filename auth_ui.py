@@ -8,6 +8,7 @@ Multi-User Interface for Smart Portfolio Monitor
 import streamlit as st
 from datetime import datetime
 import time
+import logging
 
 # Import the authentication module (choose one based on your backend)
 # For MySQL:
@@ -15,6 +16,8 @@ from auth_module import (
     register_user, login_user, logout_user,
     validate_session_token, log_audit_action
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -41,6 +44,12 @@ def init_auth_session_state():
     
     if 'login_time' not in st.session_state:
         st.session_state.login_time = None
+    
+    if 'is_refreshing' not in st.session_state:
+        st.session_state.is_refreshing = False
+    
+    if 'last_session_check' not in st.session_state:
+        st.session_state.last_session_check = None
 
 
 # ============================================================================
@@ -51,25 +60,59 @@ def check_existing_session():
     """
     Check if user has valid session token
     Auto-login if valid
+    Designed to handle Streamlit reruns safely
     """
-    if st.session_state.is_logged_in:
-        return True
-    
-    if st.session_state.session_token:
-        user_data = validate_session_token(st.session_state.session_token)
+    try:
+        # FIRST CHECK: If we're already logged in with all necessary data, trust it
+        # (Unless it's been a long time)
+        if st.session_state.get('is_logged_in') and st.session_state.get('user_id'):
+            # Check if we need to re-validate with database
+            last_check = st.session_state.get('last_session_check')
+            if last_check:
+                from datetime import timedelta as td
+                time_since_check = datetime.now() - last_check
+                # Re-validate every 10 minutes
+                if time_since_check < td(minutes=10):
+                    logger.info(f"✅ Using cached session for user {st.session_state.get('username')} (checked {time_since_check.seconds}s ago)")
+                    return True
         
-        if user_data:
-            # Valid session - auto login
+        # SECOND CHECK: Try to restore session with token
+        session_token = st.session_state.get('session_token')
+        if not session_token or not isinstance(session_token, str):
+            return False
+        
+        logger.info(f"🔐 Validating session token from database...")
+        
+        # Validate token with database
+        user_data = validate_session_token(session_token)
+        st.session_state.last_session_check = datetime.now()
+        
+        if user_data and isinstance(user_data, dict):
+            # Valid session - restore all session state
             st.session_state.is_logged_in = True
-            st.session_state.user_id = user_data['user_id']
-            st.session_state.username = user_data['username']
-            st.session_state.email = user_data['email']
+            st.session_state.user_id = user_data.get('user_id')
+            st.session_state.username = user_data.get('username')
+            st.session_state.email = user_data.get('email')
+            st.session_state.session_token = session_token
+            
+            if 'login_time' not in st.session_state or not st.session_state.login_time:
+                st.session_state.login_time = datetime.now()
+            
+            logger.info(f"✅ Session restored for user: {user_data.get('username')}")
             return True
         else:
-            # Invalid/expired session
+            logger.warning("⚠️ Session token validation failed")
             clear_session()
+            return False
     
-    return False
+    except Exception as e:
+        logger.error(f"❌ Error in session check: {str(e)}", exc_info=True)
+        # If there's an error and user claims to be logged in, trust them (might be temp DB issue)
+        if st.session_state.get('is_logged_in'):
+            logger.warning(f"⚠️ DB error but keeping user logged in (will retry on next check)")
+            return True
+        clear_session()
+        return False
 
 
 def clear_session():
@@ -152,10 +195,11 @@ def render_login_page():
                         st.session_state.email = user_data['email']
                         st.session_state.session_token = user_data['session_token']
                         st.session_state.login_time = datetime.now()
+                        st.session_state.last_session_check = datetime.now()
                         
                         st.success(f"✅ {message}")
                         st.balloons()
-                        time.sleep(1)
+                        time.sleep(0.5)
                         st.rerun()
                     else:
                         st.error(f"❌ {message}")
@@ -290,24 +334,33 @@ def render_login_page():
 
 def render_logout_button():
     """
-    Render logout button in sidebar
+    Render logout button and user info in sidebar
+    Only shows if user is logged in
     """
+    if not st.session_state.get('is_logged_in', False):
+        return
+    
     st.sidebar.divider()
     
-    # User info display
+    # User info display with safety checks
+    username = st.session_state.get('username', 'User')
+    email = st.session_state.get('email', 'N/A')
+    user_id = st.session_state.get('user_id', 'N/A')
+    
     st.sidebar.markdown(f"""
     <div style='background: #f8f9fa; padding: 15px; border-radius: 10px; text-align: center;'>
-        <h4 style='margin: 0; color: #667eea;'>👤 {st.session_state.username}</h4>
-        <p style='margin: 5px 0; font-size: 0.9em; color: #666;'>{st.session_state.email}</p>
-        <p style='margin: 5px 0; font-size: 0.8em; color: #999;'>User ID: {st.session_state.user_id}</p>
+        <h4 style='margin: 0; color: #667eea;'>👤 {username}</h4>
+        <p style='margin: 5px 0; font-size: 0.9em; color: #666;'>{email}</p>
+        <p style='margin: 5px 0; font-size: 0.8em; color: #999;'>ID: {user_id}</p>
     </div>
     """, unsafe_allow_html=True)
     
     st.sidebar.caption("")
     
     # Session info
-    if st.session_state.login_time:
-        session_duration = datetime.now() - st.session_state.login_time
+    login_time = st.session_state.get('login_time')
+    if login_time:
+        session_duration = datetime.now() - login_time
         hours = session_duration.seconds // 3600
         minutes = (session_duration.seconds % 3600) // 60
         st.sidebar.caption(f"⏱️ Session: {hours}h {minutes}m")
@@ -315,11 +368,11 @@ def render_logout_button():
     # Logout button
     if st.sidebar.button("🚪 Logout", use_container_width=True, type="secondary"):
         # Log the logout
-        if st.session_state.user_id:
+        if st.session_state.get('user_id'):
             log_audit_action(st.session_state.user_id, "USER_LOGOUT")
         
         # Invalidate token
-        if st.session_state.session_token:
+        if st.session_state.get('session_token'):
             logout_user(st.session_state.session_token)
         
         # Clear session

@@ -29,7 +29,7 @@ PASSWORD_REQUIRE_SPECIAL = True
 # Security Settings
 MAX_LOGIN_ATTEMPTS = 5
 ACCOUNT_LOCK_DURATION_MINUTES = 30
-SESSION_EXPIRY_HOURS = 24
+SESSION_EXPIRY_HOURS = 720  # 30 days instead of 24 hours
 PASSWORD_RESET_EXPIRY_HOURS = 1
 
 # ============================================================================
@@ -459,10 +459,10 @@ def create_session_token(user_id: int, connection) -> str:
         cursor.close()
 
 
-def validate_session_token(token: str, connection=None) -> Optional[int]:
+def validate_session_token(token: str, connection=None) -> Optional[Dict]:
     """
-    Validate session token and return user_id
-    Returns: user_id or None if invalid
+    Validate session token and return user data
+    Returns: dict with user_id, username, email or None if invalid
     """
     close_connection = False
     if connection is None:
@@ -477,9 +477,10 @@ def validate_session_token(token: str, connection=None) -> Optional[int]:
     try:
         cursor.execute(
             """
-            SELECT user_id, expires_at 
-            FROM session_tokens 
-            WHERE token = %s
+            SELECT st.user_id, st.expires_at, u.username, u.email
+            FROM session_tokens st
+            JOIN users u ON st.user_id = u.id
+            WHERE st.token = %s
             """,
             (token,)
         )
@@ -490,7 +491,7 @@ def validate_session_token(token: str, connection=None) -> Optional[int]:
             return None
         
         if result['expires_at'] < datetime.now():
-            # Token expired
+            # Token expired - delete it
             cursor.execute("DELETE FROM session_tokens WHERE token = %s", (token,))
             connection.commit()
             return None
@@ -506,7 +507,11 @@ def validate_session_token(token: str, connection=None) -> Optional[int]:
         )
         connection.commit()
         
-        return result['user_id']
+        return {
+            'user_id': result['user_id'],
+            'username': result['username'],
+            'email': result['email']
+        }
     
     finally:
         cursor.close()
