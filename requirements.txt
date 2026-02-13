@@ -1,0 +1,47 @@
+# ============================================================================
+# SMART PORTFOLIO MONITOR - DEPENDENCIES
+# Multi-User Version with Authentication
+# ============================================================================
+
+# Core Framework
+streamlit>=1.28.0
+streamlit-autorefresh>=0.0.1
+
+# Data & Finance
+yfinance>=0.2.28
+pandas>=2.1.0
+numpy>=1.24.0
+
+# Visualization
+plotly>=5.17.0
+
+# Google Sheets Integration
+gspread>=5.11.0
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
+
+# MySQL Database (for production)
+mysql-connector-python>=8.1.0
+
+# Authentication & Security
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.1
+
+# Email Notifications
+# (built-in smtplib is used, no extra dependency needed)
+
+# Date & Time Utilities
+python-dateutil>=2.8.2
+
+# Validation & Utilities
+email-validator>=2.0.0  # Optional: for better email validation
+
+# Testing (Optional)
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Development (Optional)
+black>=23.7.0  # Code formatter
+flake8>=6.1.0  # Linter
+mypy>=1.5.0    # Type checker
