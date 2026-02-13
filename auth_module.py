@@ -8,11 +8,11 @@ Smart Portfolio Monitor - Multi-User System
 import hashlib
 import secrets
 import re
+import base64
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Dict
 import mysql.connector
 from mysql.connector import Error
-from passlib.hash import bcrypt
 import streamlit as st
 
 # ============================================================================
@@ -61,26 +61,51 @@ def get_db_connection():
 
 def hash_password(password: str) -> str:
     """
-    Hash password using bcrypt
+    Hash password using PBKDF2 with SHA256
     Args:
         password: Plain text password
     Returns:
-        Hashed password string
+        Hashed password string (salt$hash format)
     """
-    return bcrypt.hash(password)
+    salt = secrets.token_hex(32)  # 64-char hex string (32 bytes)
+    pwd_hash = hashlib.pbkdf2_hmac(
+        'sha256',
+        password.encode('utf-8'),
+        salt.encode('utf-8'),
+        iterations=100000  # NIST recommended minimum
+    )
+    # Return salt and hash in format: salt$hash
+    return f"{salt}${base64.b64encode(pwd_hash).decode('utf-8')}"
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Verify password against hash
+    Verify password against PBKDF2 hash
     Args:
         plain_password: Plain text password
-        hashed_password: Bcrypt hash
+        hashed_password: PBKDF2 hash (salt$hash format)
     Returns:
         True if password matches, False otherwise
     """
     try:
-        return bcrypt.verify(plain_password, hashed_password)
+        # Extract salt and hash
+        if '$' not in hashed_password:
+            return False
+        
+        salt, stored_hash = hashed_password.split('$', 1)
+        
+        # Hash the provided password with the same salt
+        pwd_hash = hashlib.pbkdf2_hmac(
+            'sha256',
+            plain_password.encode('utf-8'),
+            salt.encode('utf-8'),
+            iterations=100000
+        )
+        
+        computed_hash = base64.b64encode(pwd_hash).decode('utf-8')
+        
+        # Compare hashes (constant-time comparison)
+        return secrets.compare_digest(computed_hash, stored_hash)
     except Exception as e:
         print(f"Password verification error: {e}")
         return False

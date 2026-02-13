@@ -11,18 +11,9 @@ import time
 
 # Import the authentication module (choose one based on your backend)
 # For MySQL:
-# from auth_module import (
-#     register_user, login_user, logout_user,
-#     validate_session_token, log_audit_action
-# )
-
-# For Google Sheets:
-from auth_sheets import (
-    register_user_sheets as register_user,
-    login_user_sheets as login_user,
-    logout_user_sheets as logout_user,
-    validate_session_token_sheets as validate_session_token,
-    log_audit_action_sheets as log_audit_action
+from auth_module import (
+    register_user, login_user, logout_user,
+    validate_session_token, log_audit_action
 )
 
 
